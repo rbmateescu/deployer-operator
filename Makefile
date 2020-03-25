@@ -130,7 +130,7 @@ test: install-kubebuilder
 # coverage section
 ############################################################
 
-coverage:
+coverage: install-kubebuilder
 	@common/scripts/codecov.sh $(BUILD_LOCALLY)
 
 ############################################################
@@ -164,7 +164,7 @@ push-image: $(CONFIG_DOCKER_TARGET) build-image
 ############################################################
 
 multiarch-image: $(CONFIG_DOCKER_TARGET)
-	@common/scripts/multiarch_image.sh $(IMAGE_REPO) $(IMAGE_NAME) $(VERSION)
+	@MAX_PULLING_RETRY=20 RETRY_INTERVAL=30 common/scripts/multiarch_image.sh $(IMAGE_REPO) $(IMAGE_NAME) $(VERSION)
 
 ############################################################
 # clean section

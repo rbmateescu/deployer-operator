@@ -143,8 +143,6 @@ var (
 	expectedRequest = reconcile.Request{NamespacedName: key}
 
 	timeout = time.Second * 2
-
-	exp Explorer
 )
 
 func TestReconcile(t *testing.T) {
@@ -225,9 +223,6 @@ func TestApplicationDiscovery(t *testing.T) {
 
 	// reconcile.Request
 	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
-
-	exp = eh.generalExplorer
-	exp.(*generalExplorer).hubClient = hubClusterClient
 
 	service := webService.DeepCopy()
 	g.Expect(managedClusterClient.Create(context.TODO(), service)).NotTo(gomega.HaveOccurred())

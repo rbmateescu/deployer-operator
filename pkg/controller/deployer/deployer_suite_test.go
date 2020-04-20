@@ -50,7 +50,6 @@ var (
 	hubClusterClient     client.Client
 
 	mgr      manager.Manager
-	eh       ExplorerHandler
 	requests chan reconcile.Request
 	recFn    reconcile.Reconciler
 
@@ -125,9 +124,7 @@ func TestMain(m *testing.M) {
 		mgrStopped.Wait()
 	}()
 
-	eh.initExplorerHandler(hubClusterConfig, mgr.GetConfig(), clusterOnHub)
-
-	rec := newReconciler(mgr, hubClusterClient, clusterOnHub, &eh)
+	rec := newReconciler(mgr, hubClusterClient, clusterOnHub)
 	recFn, requests = SetupTestReconcile(rec)
 
 	if err = add(mgr, recFn); err != nil {

@@ -15,18 +15,20 @@
 package deployable
 
 import (
-	"context"
+	"reflect"
 
 	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
 	"github.com/IBM/deployer-operator/pkg/utils"
 	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
 	subv1alpha1 "github.com/IBM/multicloud-operators-subscription/pkg/apis/app/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const (
@@ -63,39 +65,67 @@ func SyncDeployable(obj interface{}, explorer *utils.Explorer) {
 		}
 	}
 
-	dpl := locateDeployableForObject(metaobj, explorer)
+	dpl, err := locateDeployableForObject(metaobj, explorer)
+	if err != nil {
+		klog.Error("Failed to locate deployable ", metaobj.GetNamespace()+"/"+metaobj.GetName(), " with error: ", err)
+		return
+	}
 	if dpl == nil {
 		dpl = &dplv1alpha1.Deployable{}
 		dpl.GenerateName = genDeployableGenerateName(metaobj)
 		dpl.Namespace = explorer.Cluster.Namespace
 	}
 
-	prepareDeployable(dpl, metaobj, explorer)
-	prepareTemplate(metaobj)
+	if err = updateDeployableAndObject(dpl, metaobj, explorer); err != nil {
+		klog.Error("Failed to update deployable :", metaobj.GetNamespace(), "/", metaobj.GetName()+" with error: ", err)
+	}
+}
 
-	dpl.Spec.Template = &runtime.RawExtension{
-		Object: metaobj.(runtime.Object),
+func updateDeployableAndObject(dpl *dplv1alpha1.Deployable, metaobj metav1.Object, explorer *utils.Explorer) error {
+	refreshedDpl := prepareDeployable(dpl, metaobj, explorer)
+
+	var err error
+	refreshedObject, err := patchObject(refreshedDpl, metaobj, explorer)
+	prepareTemplate(refreshedObject)
+	refreshedDpl.Spec.Template = &runtime.RawExtension{
+		Object: refreshedObject,
 	}
 
-	if dpl.UID == "" {
-		err = explorer.HubClient.Create(context.TODO(), dpl)
+	if refreshedObject == nil {
+		return nil
+	}
+	if err != nil {
+		klog.Error("Failed to patch object with error: ", err)
+		return err
+	}
+
+	if refreshedDpl.UID == "" {
+		ucContent, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(refreshedDpl)
+		uc := &unstructured.Unstructured{}
+		uc.SetUnstructuredContent(ucContent)
+		uc.SetGroupVersionKind(deployableGVK)
+		_, err = explorer.DynamicHubClient.Resource(explorer.GVKGVRMap[deployableGVK]).Namespace(refreshedDpl.Namespace).Create(uc, metav1.CreateOptions{})
 	} else {
-		err = explorer.HubClient.Update(context.TODO(), dpl)
+		// avoid expensive reconciliation logic if no changes in dpl structure
+		if !reflect.DeepEqual(refreshedDpl, dpl) {
+			ucContent, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(refreshedDpl)
+			uc := &unstructured.Unstructured{}
+			uc.SetUnstructuredContent(ucContent)
+			uc.SetGroupVersionKind(deployableGVK)
+			_, err = explorer.DynamicHubClient.Resource(explorer.GVKGVRMap[deployableGVK]).Namespace(refreshedDpl.Namespace).Update(uc, metav1.UpdateOptions{})
+		}
 	}
 
 	if err != nil {
 		klog.Error("Failed to sync object deployable with error: ", err)
-	}
-
-	err = patchObject(dpl, metaobj, explorer)
-	if err != nil {
-		klog.Error("Failed to patch object with error: ", err)
+		return err
 	}
 
 	klog.V(packageInfoLogLevel).Info("Successfully synched deployable for object ", metaobj.GetNamespace()+"/"+metaobj.GetName())
+	return nil
 }
 
-func patchObject(dpl *dplv1alpha1.Deployable, metaobj metav1.Object, explorer *utils.Explorer) error {
+func patchObject(dpl *dplv1alpha1.Deployable, metaobj metav1.Object, explorer *utils.Explorer) (*unstructured.Unstructured, error) {
 
 	rtobj := metaobj.(runtime.Object)
 	klog.V(5).Info("Patching meta object:", metaobj, " covert to runtime object:", rtobj)
@@ -104,8 +134,11 @@ func patchObject(dpl *dplv1alpha1.Deployable, metaobj metav1.Object, explorer *u
 
 	ucobj, err := explorer.DynamicMCClient.Resource(objgvr).Namespace(metaobj.GetNamespace()).Get(metaobj.GetName(), metav1.GetOptions{})
 	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, nil
+		}
 		klog.Error("Failed to patch managed cluster object with error:", err)
-		return err
+		return nil, err
 	}
 
 	annotations := ucobj.GetAnnotations()
@@ -115,27 +148,26 @@ func patchObject(dpl *dplv1alpha1.Deployable, metaobj metav1.Object, explorer *u
 	annotations[subv1alpha1.AnnotationHosting] = "/"
 	annotations[subv1alpha1.AnnotationSyncSource] = "subnsdpl-/"
 	annotations[dplv1alpha1.AnnotationHosting] = types.NamespacedName{Namespace: dpl.GetNamespace(), Name: dpl.GetName()}.String()
-	annotations[appv1alpha1.AnnotationDiscovered] = trueCondition
-	ucobj.SetAnnotations(annotations)
+	if _, ok := dpl.Annotations[appv1alpha1.AnnotationDiscovered]; ok {
+		annotations[appv1alpha1.AnnotationDiscovered] = dpl.Annotations[appv1alpha1.AnnotationDiscovered]
+	}
 
+	ucobj.SetAnnotations(annotations)
 	_, err = explorer.DynamicMCClient.Resource(objgvr).Namespace(metaobj.GetNamespace()).Update(ucobj, metav1.UpdateOptions{})
 
-	return err
+	return ucobj, err
 }
 
 func genDeployableGenerateName(obj metav1.Object) string {
 	return obj.GetName() + "-"
 }
 
-func locateDeployableForObject(metaobj metav1.Object, explorer *utils.Explorer) *dplv1alpha1.Deployable {
-	dpllist := &dplv1alpha1.DeployableList{}
-
-	err := explorer.HubClient.List(context.TODO(), dpllist, &client.ListOptions{
-		Namespace: explorer.Cluster.Namespace,
-	})
+func locateDeployableForObject(metaobj metav1.Object, explorer *utils.Explorer) (*dplv1alpha1.Deployable, error) {
+	gvr := explorer.GVKGVRMap[deployableGVK]
+	dpllist, err := explorer.DynamicHubClient.Resource(gvr).Namespace(explorer.Cluster.Namespace).List(metav1.ListOptions{})
 	if err != nil {
 		klog.Error("Failed to list deployable objects from hub cluster namespace with error:", err)
-		return nil
+		return nil, err
 	}
 
 	var objdpl *dplv1alpha1.Deployable
@@ -153,12 +185,70 @@ func locateDeployableForObject(metaobj metav1.Object, explorer *utils.Explorer) 
 
 		srcobj, ok := annotations[appv1alpha1.SourceObject]
 		if ok && srcobj == key {
-			objdpl = &dpl
+			err = runtime.DefaultUnstructuredConverter.FromUnstructured(dpl.Object, objdpl)
+			if err != nil {
+				klog.Error("Failed to convert unstructured to deployable for ", dpl.GetNamespace()+"/"+dpl.GetName())
+				return nil, err
+			}
 			break
 		}
 	}
 
-	return objdpl
+	return objdpl, nil
+}
+
+func locateObjectForDeployable(dpl metav1.Object, explorer *utils.Explorer) (*unstructured.Unstructured, error) {
+
+	uc, err := runtime.DefaultUnstructuredConverter.ToUnstructured(dpl)
+	if err != nil {
+		klog.Error("Failed to convert object to unstructured with error:", err)
+		return nil, err
+	}
+
+	kind, found, err := unstructured.NestedString(uc, "spec", "template", "kind")
+	if !found || err != nil {
+		klog.Error("Cannot get the wrapped object kind for deployable ", dpl.GetNamespace()+"/"+dpl.GetName())
+		return nil, err
+	}
+
+	gv, found, err := unstructured.NestedString(uc, "spec", "template", "apiVersion")
+	if !found || err != nil {
+		klog.Error("Cannot get the wrapped object apiversion for deployable ", dpl.GetNamespace()+"/"+dpl.GetName())
+		return nil, err
+	}
+
+	name, found, err := unstructured.NestedString(uc, "spec", "template", "metadata", "name")
+	if !found || err != nil {
+		klog.Error("Cannot get the wrapped object name for deployable ", dpl.GetNamespace()+"/"+dpl.GetName())
+		return nil, err
+	}
+
+	namespace, found, err := unstructured.NestedString(uc, "spec", "template", "metadata", "namespace")
+	if !found || err != nil {
+		klog.Error("Cannot get the wrapped object namespace for deployable ", dpl.GetNamespace()+"/"+dpl.GetName())
+		return nil, err
+	}
+
+	gvk := schema.GroupVersionKind{
+		Group:   utils.StripVersion(gv),
+		Version: utils.StripGroup(gv),
+		Kind:    kind,
+	}
+
+	gvr := explorer.GVKGVRMap[gvk]
+	if _, ok := explorer.GVKGVRMap[gvk]; !ok {
+		klog.Error("Cannot get GVR for GVK ", gvk.String()+" for deployable "+dpl.GetNamespace()+"/"+dpl.GetName())
+		return nil, err
+	}
+	obj, err := explorer.DynamicMCClient.Resource(gvr).Namespace(namespace).Get(name, metav1.GetOptions{})
+	if obj == nil || err != nil {
+		if errors.IsNotFound(err) {
+			klog.Error("Cannot find the wrapped object for deployable ", dpl.GetNamespace()+"/"+dpl.GetName())
+			return nil, nil
+		}
+		return nil, err
+	}
+	return obj, nil
 }
 
 var (
@@ -184,8 +274,9 @@ func prepareTemplate(metaobj metav1.Object) {
 	}
 }
 
-func prepareDeployable(deployable *dplv1alpha1.Deployable, metaobj metav1.Object, explorer *utils.Explorer) {
-	labels := deployable.GetLabels()
+func prepareDeployable(deployable *dplv1alpha1.Deployable, metaobj metav1.Object, explorer *utils.Explorer) *dplv1alpha1.Deployable {
+	dpl := deployable.DeepCopy()
+	labels := dpl.GetLabels()
 	if labels == nil {
 		labels = make(map[string]string)
 	}
@@ -194,9 +285,9 @@ func prepareDeployable(deployable *dplv1alpha1.Deployable, metaobj metav1.Object
 		labels[key] = value
 	}
 
-	deployable.SetLabels(labels)
+	dpl.SetLabels(labels)
 
-	annotations := deployable.GetAnnotations()
+	annotations := dpl.GetAnnotations()
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
@@ -205,5 +296,6 @@ func prepareDeployable(deployable *dplv1alpha1.Deployable, metaobj metav1.Object
 	annotations[dplv1alpha1.AnnotationManagedCluster] = explorer.Cluster.String()
 	annotations[dplv1alpha1.AnnotationLocal] = trueCondition
 	annotations[appv1alpha1.AnnotationDiscovered] = trueCondition
-	deployable.SetAnnotations(annotations)
+	dpl.SetAnnotations(annotations)
+	return dpl
 }

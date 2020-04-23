@@ -22,15 +22,14 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type Explorer struct {
 	DynamicMCClient  dynamic.Interface
 	DynamicHubClient dynamic.Interface
-	HubClient        client.Client
-	Cluster          types.NamespacedName
-	GVKGVRMap        map[schema.GroupVersionKind]schema.GroupVersionResource
+	//HubClient        client.Client
+	Cluster   types.NamespacedName
+	GVKGVRMap map[schema.GroupVersionKind]schema.GroupVersionResource
 }
 
 const (
@@ -62,11 +61,11 @@ func InitExplorer(hubconfig, mcconfig *rest.Config, cluster types.NamespacedName
 		return nil, err
 	}
 
-	explorer.HubClient, err = client.New(hubconfig, client.Options{})
-	if err != nil {
-		klog.Error("Failed to create client to hub with error:", err)
-		return nil, err
-	}
+	// explorer.HubClient, err = client.New(hubconfig, client.Options{})
+	// if err != nil {
+	// 	klog.Error("Failed to create client to hub with error:", err)
+	// 	return nil, err
+	// }
 
 	explorer.Cluster = cluster
 	resources, err := discovery.NewDiscoveryClientForConfigOrDie(mcconfig).ServerPreferredResources()

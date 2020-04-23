@@ -17,8 +17,14 @@ package deployable
 import (
 	"time"
 
+	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
 	"github.com/IBM/deployer-operator/pkg/utils"
 	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic/dynamicinformer"
@@ -26,7 +32,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var (
@@ -41,26 +46,39 @@ var (
 // Add creates a new Deployable Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, hubconfig *rest.Config, cluster types.NamespacedName) error {
-	explorer, err := utils.InitExplorer(hubconfig, mgr.GetConfig(), cluster)
+	reconciler, err := newReconciler(mgr, hubconfig, cluster)
 	if err != nil {
-		klog.Error("Failed to create client explorer: ", err)
+		klog.Error("Failed to create the deployer reconciler ", err)
 		return err
 	}
-	var dynamicHubFactory = dynamicinformer.NewDynamicSharedInformerFactory(explorer.DynamicHubClient, resync)
-
-	return add(mgr, &ReconcileDeployable{
-		dynamicHubFactory: dynamicHubFactory,
-	})
-}
-
-// add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r reconcile.Reconciler) error {
-
+	reconciler.start()
 	return nil
 }
 
-// blank assignment to verify that ReconcileDeployer implements reconcile.Reconciler
-var _ reconcile.Reconciler = &ReconcileDeployable{}
+func newReconciler(mgr manager.Manager, hubconfig *rest.Config, cluster types.NamespacedName) (*ReconcileDeployable, error) {
+	explorer, err := utils.InitExplorer(hubconfig, mgr.GetConfig(), cluster)
+	if err != nil {
+		klog.Error("Failed to create client explorer: ", err)
+		return nil, err
+	}
+	var dynamicHubFactory = dynamicinformer.NewDynamicSharedInformerFactory(explorer.DynamicHubClient, resync)
+	reconciler := &ReconcileDeployable{
+		explorer:          explorer,
+		dynamicHubFactory: dynamicHubFactory,
+	}
+	return reconciler, nil
+}
+
+// blank assignment to verify that ReconcileDeployer implements ReconcileDeployableInterface
+var _ ReconcileDeployableInterface = &ReconcileDeployable{}
+
+type ReconcileDeployableInterface interface {
+	start()
+	syncCreateDeployable(obj interface{})
+	syncUpdateDeployable(old interface{}, new interface{})
+	syncRemoveDeployable(obj interface{})
+	stop()
+}
 
 // ReconcileDeployable reconciles a Deployable object
 type ReconcileDeployable struct {
@@ -70,25 +88,24 @@ type ReconcileDeployable struct {
 }
 
 func (r *ReconcileDeployable) start() {
-	r.stop()
-
 	if r.dynamicHubFactory == nil {
 		return
 	}
+	r.stop()
 	// generic explorer
 	r.stopCh = make(chan struct{})
 
 	if _, ok := r.explorer.GVKGVRMap[deployableGVK]; !ok {
-		klog.Error("Failed to obtain gvr for application gvk:", deployableGVK.String())
+		klog.Error("Failed to obtain gvr for deployable gvk:", deployableGVK.String())
 		return
 	}
 
 	handler := cache.ResourceEventHandlerFuncs{
 		AddFunc: func(new interface{}) {
-			r.syncDeployable(new)
+			r.syncCreateDeployable(new)
 		},
 		UpdateFunc: func(old, new interface{}) {
-			r.syncDeployable(new)
+			r.syncUpdateDeployable(old, new)
 		},
 		DeleteFunc: func(old interface{}) {
 			r.syncRemoveDeployable(old)
@@ -109,10 +126,99 @@ func (r *ReconcileDeployable) stop() {
 	r.stopCh = nil
 }
 
-func (r *ReconcileDeployable) syncDeployable(obj interface{}) {}
+func (r *ReconcileDeployable) syncCreateDeployable(obj interface{}) {
+	metaobj, err := meta.Accessor(obj)
+	if err != nil {
+		klog.Error("Failed to access object metadata for sync with error: ", err)
+		return
+	}
+
+	//exit if deployable does not have the hybrid-discovered annotation
+	if annotation, ok := metaobj.GetAnnotations()[appv1alpha1.AnnotationDiscovered]; !ok ||
+		annotation != "true" {
+		return
+	}
+
+	r.syncDeployable(metaobj)
+}
+
+func (r *ReconcileDeployable) syncUpdateDeployable(old interface{}, new interface{}) {
+
+	metaNew, err := meta.Accessor(new)
+	if err != nil {
+		klog.Error("Failed to access object metadata for sync with error: ", err)
+		return
+	}
+
+	//exit if deployable does not have the hybrid-discovered annotation
+	if annotation, ok := metaNew.GetAnnotations()[appv1alpha1.AnnotationDiscovered]; !ok ||
+		annotation != "true" {
+		return
+	}
+
+	metaOld, err := meta.Accessor(old)
+	if err != nil {
+		klog.Error("Failed to access object metadata for sync with error: ", err)
+		return
+	}
+	ucOld, err := runtime.DefaultUnstructuredConverter.ToUnstructured(old)
+	if err != nil {
+		klog.Error("Failed to convert object with error: ", err)
+		return
+	}
+	oldSpec, _, err := unstructured.NestedMap(ucOld, "spec")
+	if err != nil {
+		klog.Error("Failed to retrieve deployable spec with error: ", err)
+		return
+	}
+
+	ucNew, err := runtime.DefaultUnstructuredConverter.ToUnstructured(new)
+	if err != nil {
+		klog.Error("Failed to convert object with error: ", err)
+		return
+	}
+	newSpec, _, err := unstructured.NestedMap(ucNew, "spec")
+	if err != nil {
+		klog.Error("Failed to retrieve deployable spec with error: ", err)
+		return
+	}
+
+	if equality.Semantic.DeepEqual(metaOld.GetLabels(), metaNew.GetLabels()) &&
+		equality.Semantic.DeepEqual(metaOld.GetAnnotations(), metaNew.GetAnnotations()) &&
+		equality.Semantic.DeepEqual(oldSpec, newSpec) {
+		return
+	}
+	r.syncDeployable(metaNew)
+}
 
 func (r *ReconcileDeployable) syncRemoveDeployable(obj interface{}) {}
 
-func (r *ReconcileDeployable) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	return reconcile.Result{}, nil
+func (r *ReconcileDeployable) syncDeployable(metaobj metav1.Object) {
+
+	tpl, err := locateObjectForDeployable(metaobj, r.explorer)
+	if err != nil {
+		klog.Error("Failed to retrieve the wrapped object for deployable ", metaobj.GetNamespace()+"/"+metaobj.GetName()+" with error: ", err)
+		return
+	}
+	if tpl == nil {
+		klog.Info("Cleaning up orphaned deployable ", metaobj.GetNamespace()+"/"+metaobj.GetName())
+		// remove deployable from hub
+		gvr := r.explorer.GVKGVRMap[deployableGVK]
+		err = r.explorer.DynamicHubClient.Resource(gvr).Namespace(metaobj.GetNamespace()).Delete(metaobj.GetName(), &metav1.DeleteOptions{})
+		if err != nil {
+			klog.Error("Failed to delete orphaned deployable ", metaobj.GetNamespace()+"/"+metaobj.GetName())
+		}
+		return
+	}
+
+	dpl := &dplv1alpha1.Deployable{}
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(metaobj.(*unstructured.Unstructured).Object, dpl)
+	if err != nil {
+		klog.Error("Cannot convert unstructured to deployable ", metaobj.GetNamespace()+"/"+metaobj.GetName()+" with error: ", err)
+		return
+	}
+	if err = updateDeployableAndObject(dpl, tpl, r.explorer); err != nil {
+		klog.Error("Cannot update deployable ", metaobj.GetNamespace()+"/"+metaobj.GetName()+" with error: ", err)
+		return
+	}
 }

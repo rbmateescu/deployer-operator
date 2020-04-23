@@ -20,6 +20,7 @@ import (
 	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
 	"github.com/IBM/deployer-operator/pkg/controller/deployable"
 	"github.com/IBM/deployer-operator/pkg/utils"
+	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
 	sigappv1beta1 "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,7 +34,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 const (
@@ -48,41 +48,58 @@ var (
 		Version: sigappv1beta1.SchemeGroupVersion.Version,
 		Kind:    "Application",
 	}
+	deployableGVK = schema.GroupVersionKind{
+		Group:   dplv1alpha1.SchemeGroupVersion.Group,
+		Version: dplv1alpha1.SchemeGroupVersion.Version,
+		Kind:    "Deployable",
+	}
 )
 
 // Add creates a new Deployable Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, hubconfig *rest.Config, cluster types.NamespacedName) error {
-	explorer, err := utils.InitExplorer(hubconfig, mgr.GetConfig(), cluster)
+	reconciler, err := newReconciler(mgr, hubconfig, cluster)
 	if err != nil {
-		klog.Error("Failed to create client explorer: ", err)
+		klog.Error("Failed to create the application reconciler ", err)
 		return err
 	}
-	var dynamicMCFactory = dynamicinformer.NewDynamicSharedInformerFactory(explorer.DynamicMCClient, resync)
-
-	return add(mgr, &ReconcileDeployable{
-		explorer:         explorer,
-		dynamicMCFactory: dynamicMCFactory,
-	})
-}
-
-// add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r reconcile.Reconciler) error {
-
+	reconciler.start()
 	return nil
 }
 
-// blank assignment to verify that ReconcileDeployer implements reconcile.Reconciler
-var _ reconcile.Reconciler = &ReconcileDeployable{}
+func newReconciler(mgr manager.Manager, hubconfig *rest.Config, cluster types.NamespacedName) (*ReconcileApplication, error) {
+	explorer, err := utils.InitExplorer(hubconfig, mgr.GetConfig(), cluster)
+	if err != nil {
+		klog.Error("Failed to create client explorer: ", err)
+		return nil, err
+	}
+	var dynamicMCFactory = dynamicinformer.NewDynamicSharedInformerFactory(explorer.DynamicMCClient, resync)
+	reconciler := &ReconcileApplication{
+		explorer:         explorer,
+		dynamicMCFactory: dynamicMCFactory,
+	}
+	return reconciler, nil
+}
 
 // ReconcileDeployable reconciles a Deployable object
-type ReconcileDeployable struct {
+type ReconcileApplication struct {
 	explorer         *utils.Explorer
 	dynamicMCFactory dynamicinformer.DynamicSharedInformerFactory
 	stopCh           chan struct{}
 }
 
-func (r *ReconcileDeployable) start() {
+// blank assignment to verify that ReconcileDeployer implements ReconcileDeployableInterface
+var _ ReconcileApplicationInterface = &ReconcileApplication{}
+
+type ReconcileApplicationInterface interface {
+	start()
+	syncCreateApplication(new interface{})
+	syncUpdateApplication(old interface{}, new interface{})
+	syncRemoveApplication(old interface{})
+	stop()
+}
+
+func (r *ReconcileApplication) start() {
 	r.stop()
 
 	if r.explorer == nil || r.dynamicMCFactory == nil {
@@ -98,13 +115,13 @@ func (r *ReconcileDeployable) start() {
 
 	handler := cache.ResourceEventHandlerFuncs{
 		AddFunc: func(new interface{}) {
-			r.syncDeployablesForApplication(new)
+			r.syncCreateApplication(new)
 		},
 		UpdateFunc: func(old, new interface{}) {
-			r.syncDeployablesForApplication(new)
+			r.syncUpdateApplication(old, new)
 		},
 		DeleteFunc: func(old interface{}) {
-			r.removeDeployablesForApplication(old)
+			r.syncRemoveApplication(old)
 		},
 	}
 
@@ -114,7 +131,7 @@ func (r *ReconcileDeployable) start() {
 	r.dynamicMCFactory.Start(r.stopCh)
 }
 
-func (r *ReconcileDeployable) stop() {
+func (r *ReconcileApplication) stop() {
 	if r.stopCh != nil {
 		r.dynamicMCFactory.WaitForCacheSync(r.stopCh)
 		close(r.stopCh)
@@ -122,14 +139,33 @@ func (r *ReconcileDeployable) stop() {
 	r.stopCh = nil
 }
 
-func (r *ReconcileDeployable) syncDeployablesForApplication(obj interface{}) {
-	metaobj, err := meta.Accessor(obj)
+func (r *ReconcileApplication) syncCreateApplication(new interface{}) {
+	metaobj, err := meta.Accessor(new)
 	if err != nil {
 		klog.Error("Failed to access object metadata for sync with error: ", err)
 		return
 	}
 
-	uc, err := runtime.DefaultUnstructuredConverter.ToUnstructured(metaobj)
+	r.syncApplication(metaobj)
+}
+
+func (r *ReconcileApplication) syncUpdateApplication(old interface{}, new interface{}) {
+	metaobj, err := meta.Accessor(new)
+	if err != nil {
+		klog.Error("Failed to access object metadata for sync with error: ", err)
+		return
+	}
+
+	r.syncApplication(metaobj)
+}
+
+func (r *ReconcileApplication) syncRemoveApplication(old interface{}) {
+
+}
+
+func (r *ReconcileApplication) syncApplication(obj metav1.Object) {
+
+	uc, err := runtime.DefaultUnstructuredConverter.ToUnstructured(obj)
 	if err != nil {
 		klog.Error("Failed to convert object to unstructured with error:", err)
 		return
@@ -160,7 +196,7 @@ func (r *ReconcileDeployable) syncDeployablesForApplication(obj interface{}) {
 						objlist, err = r.explorer.DynamicMCClient.Resource(gvr).List(metav1.ListOptions{LabelSelector: labels.Set(app.Spec.Selector.MatchLabels).String()})
 					} else {
 						// retrieve only namespaced components
-						objlist, err = r.explorer.DynamicMCClient.Resource(gvr).Namespace(metaobj.GetNamespace()).List(
+						objlist, err = r.explorer.DynamicMCClient.Resource(gvr).Namespace(obj.GetNamespace()).List(
 							metav1.ListOptions{LabelSelector: labels.Set(app.Spec.Selector.MatchLabels).String()})
 					}
 					if err != nil {
@@ -187,11 +223,4 @@ func (r *ReconcileDeployable) syncDeployablesForApplication(obj interface{}) {
 			deployable.SyncDeployable(&item, r.explorer)
 		}
 	}
-}
-
-func (r *ReconcileDeployable) removeDeployablesForApplication(obj interface{}) {
-}
-
-func (r *ReconcileDeployable) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	return reconcile.Result{}, nil
 }

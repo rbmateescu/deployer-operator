@@ -145,14 +145,16 @@ func TestApplicationDiscovery(t *testing.T) {
 	svcUC, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(svc)
 	uc := &unstructured.Unstructured{}
 	uc.SetUnstructuredContent(svcUC)
-	mcDynamicClient.Resource(svcGVR).Namespace(userNamespace).Create(uc, metav1.CreateOptions{})
+	_, err = mcDynamicClient.Resource(svcGVR).Namespace(userNamespace).Create(uc, metav1.CreateOptions{})
+	g.Expect(err).ShouldNot(HaveOccurred())
 	defer mcDynamicClient.Resource(dplGVR).Namespace(userNamespace).Delete(svc.Name, &metav1.DeleteOptions{})
 
 	sts := mcSTS.DeepCopy()
 	stsUC, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(sts)
 	uc = &unstructured.Unstructured{}
 	uc.SetUnstructuredContent(stsUC)
-	mcDynamicClient.Resource(stsGVR).Namespace(userNamespace).Create(uc, metav1.CreateOptions{})
+	_, err = mcDynamicClient.Resource(stsGVR).Namespace(userNamespace).Create(uc, metav1.CreateOptions{})
+	g.Expect(err).ShouldNot(HaveOccurred())
 	defer mcDynamicClient.Resource(stsGVR).Namespace(userNamespace).Delete(sts.Name, &metav1.DeleteOptions{})
 
 	app := mcApp.DeepCopy()
@@ -160,6 +162,7 @@ func TestApplicationDiscovery(t *testing.T) {
 	uc = &unstructured.Unstructured{}
 	uc.SetUnstructuredContent(appUC)
 	_, err = mcDynamicClient.Resource(appGVR).Namespace(userNamespace).Create(uc, metav1.CreateOptions{})
+	g.Expect(err).ShouldNot(HaveOccurred())
 	defer mcDynamicClient.Resource(appGVR).Namespace(userNamespace).Delete(app.Name, &metav1.DeleteOptions{})
 
 	// wait on app reconcile on MC

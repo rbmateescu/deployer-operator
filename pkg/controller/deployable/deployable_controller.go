@@ -133,7 +133,7 @@ func (r *ReconcileDeployable) syncCreateDeployable(obj interface{}) {
 		return
 	}
 
-	//exit if deployable does not have the hybrid-discovered annotation
+	// exit if deployable does not have the hybrid-discovered annotation
 	if annotation, ok := metaobj.GetAnnotations()[appv1alpha1.AnnotationDiscovered]; !ok ||
 		annotation != "true" {
 		return
@@ -142,26 +142,26 @@ func (r *ReconcileDeployable) syncCreateDeployable(obj interface{}) {
 	r.syncDeployable(metaobj)
 }
 
-func (r *ReconcileDeployable) syncUpdateDeployable(old interface{}, new interface{}) {
+func (r *ReconcileDeployable) syncUpdateDeployable(oldObj, newObj interface{}) {
 
-	metaNew, err := meta.Accessor(new)
+	metaNew, err := meta.Accessor(newObj)
 	if err != nil {
 		klog.Error("Failed to access object metadata for sync with error: ", err)
 		return
 	}
 
-	//exit if deployable does not have the hybrid-discovered annotation
+	// exit if deployable does not have the hybrid-discovered annotation
 	if annotation, ok := metaNew.GetAnnotations()[appv1alpha1.AnnotationDiscovered]; !ok ||
 		annotation != "true" {
 		return
 	}
 
-	metaOld, err := meta.Accessor(old)
+	metaOld, err := meta.Accessor(oldObj)
 	if err != nil {
 		klog.Error("Failed to access object metadata for sync with error: ", err)
 		return
 	}
-	ucOld, err := runtime.DefaultUnstructuredConverter.ToUnstructured(old)
+	ucOld, err := runtime.DefaultUnstructuredConverter.ToUnstructured(oldObj)
 	if err != nil {
 		klog.Error("Failed to convert object with error: ", err)
 		return
@@ -172,7 +172,7 @@ func (r *ReconcileDeployable) syncUpdateDeployable(old interface{}, new interfac
 		return
 	}
 
-	ucNew, err := runtime.DefaultUnstructuredConverter.ToUnstructured(new)
+	ucNew, err := runtime.DefaultUnstructuredConverter.ToUnstructured(newObj)
 	if err != nil {
 		klog.Error("Failed to convert object with error: ", err)
 		return

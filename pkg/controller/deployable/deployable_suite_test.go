@@ -117,29 +117,29 @@ func (ds DeployableSync) stop() {
 	ds.stopCh = nil
 }
 
-func (ds DeployableSync) syncCreateDeployable(obj interface{}) {
-	ds.ReconcileDeployable.syncCreateDeployable(obj)
+func (ds DeployableSync) syncCreateDeployable(newObj interface{}) {
+	ds.ReconcileDeployable.syncCreateDeployable(newObj)
 	// non-blocking operation
 	select {
-	case ds.createCh <- obj:
+	case ds.createCh <- newObj:
 	default:
 	}
 
 }
-func (ds DeployableSync) syncUpdateDeployable(old interface{}, new interface{}) {
-	ds.ReconcileDeployable.syncUpdateDeployable(old, new)
+func (ds DeployableSync) syncUpdateDeployable(oldObj, newObj interface{}) {
+	ds.ReconcileDeployable.syncUpdateDeployable(oldObj, newObj)
 	// non-blocking operation
 	select {
-	case ds.updateCh <- new:
+	case ds.updateCh <- newObj:
 	default:
 	}
 
 }
-func (ds DeployableSync) syncRemoveDeployable(old interface{}) {
-	ds.ReconcileDeployable.syncRemoveDeployable(old)
+func (ds DeployableSync) syncRemoveDeployable(oldObj interface{}) {
+	ds.ReconcileDeployable.syncRemoveDeployable(oldObj)
 	// non-blocking operation
 	select {
-	case ds.deleteCh <- old:
+	case ds.deleteCh <- oldObj:
 	default:
 	}
 

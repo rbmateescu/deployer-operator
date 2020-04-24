@@ -105,15 +105,13 @@ func updateDeployableAndObject(dpl *dplv1alpha1.Deployable, metaobj metav1.Objec
 		uc.SetUnstructuredContent(ucContent)
 		uc.SetGroupVersionKind(deployableGVK)
 		_, err = explorer.DynamicHubClient.Resource(explorer.GVKGVRMap[deployableGVK]).Namespace(refreshedDpl.Namespace).Create(uc, metav1.CreateOptions{})
-	} else {
+	} else if !reflect.DeepEqual(refreshedDpl, dpl) {
 		// avoid expensive reconciliation logic if no changes in dpl structure
-		if !reflect.DeepEqual(refreshedDpl, dpl) {
-			ucContent, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(refreshedDpl)
-			uc := &unstructured.Unstructured{}
-			uc.SetUnstructuredContent(ucContent)
-			uc.SetGroupVersionKind(deployableGVK)
-			_, err = explorer.DynamicHubClient.Resource(explorer.GVKGVRMap[deployableGVK]).Namespace(refreshedDpl.Namespace).Update(uc, metav1.UpdateOptions{})
-		}
+		ucContent, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(refreshedDpl)
+		uc := &unstructured.Unstructured{}
+		uc.SetUnstructuredContent(ucContent)
+		uc.SetGroupVersionKind(deployableGVK)
+		_, err = explorer.DynamicHubClient.Resource(explorer.GVKGVRMap[deployableGVK]).Namespace(refreshedDpl.Namespace).Update(uc, metav1.UpdateOptions{})
 	}
 
 	if err != nil {

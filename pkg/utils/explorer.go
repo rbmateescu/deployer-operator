@@ -27,9 +27,8 @@ import (
 type Explorer struct {
 	DynamicMCClient  dynamic.Interface
 	DynamicHubClient dynamic.Interface
-	//HubClient        client.Client
-	Cluster   types.NamespacedName
-	GVKGVRMap map[schema.GroupVersionKind]schema.GroupVersionResource
+	Cluster          types.NamespacedName
+	GVKGVRMap        map[schema.GroupVersionKind]schema.GroupVersionResource
 }
 
 const (

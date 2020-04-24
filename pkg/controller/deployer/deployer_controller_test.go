@@ -103,7 +103,9 @@ func TestReconcile(t *testing.T) {
 	g.Expect(deployerResource.ObjectMeta.Namespace).To(Equal(managedClusterDeployer.ObjectMeta.Namespace))
 	g.Expect(deployerResource.Spec).To(Equal(managedClusterDeployer.Spec))
 
-	managedClusterClient.Delete(context.TODO(), dep)
+	if err = managedClusterClient.Delete(context.TODO(), dep); err != nil {
+		t.Fail()
+	}
 	g.Eventually(requests, timeout).Should(Receive(Equal(expectedRequest)))
 }
 
@@ -133,8 +135,11 @@ func TestDeployersetCreatedOnHub(t *testing.T) {
 
 	dep := managedClusterDeployer.DeepCopy()
 	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(HaveOccurred())
-	defer managedClusterClient.Delete(context.TODO(), dep)
-
+	defer func() {
+		if err = managedClusterClient.Delete(context.TODO(), dep); err != nil {
+			t.Fail()
+		}
+	}()
 	g.Eventually(requests, timeout).Should(Receive(Equal(expectedRequest)))
 
 	// wait for the hub resource to come through
@@ -181,7 +186,9 @@ func TestDeployersetRemovedFromHub(t *testing.T) {
 	// wait for the hub resource to come through
 	<-hubClusterClient.(HubClient).createCh
 
-	managedClusterClient.Delete(context.TODO(), dep)
+	if err = managedClusterClient.Delete(context.TODO(), dep); err != nil {
+		t.Fail()
+	}
 
 	<-hubClusterClient.(HubClient).deleteCh
 

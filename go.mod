@@ -5,7 +5,6 @@ go 1.13
 require (
 	github.com/IBM/multicloud-operators-deployable v0.0.0-20191121134707-a429faaac3b4
 	github.com/IBM/multicloud-operators-subscription v0.0.0-20200207022944-915315edaf5d
-	github.com/docker/docker v1.4.2-0.20181221150755-2cb26cfe9cbf
 	github.com/kubernetes-sigs/application v0.8.1
 	github.com/onsi/gomega v1.8.1
 	github.com/operator-framework/operator-sdk v0.15.1
@@ -15,7 +14,6 @@ require (
 	k8s.io/apimachinery v0.0.0
 	k8s.io/client-go v12.0.0+incompatible
 	k8s.io/klog v1.0.0
-	k8s.io/kubernetes v1.16.2
 	sigs.k8s.io/controller-runtime v0.4.0
 )
 

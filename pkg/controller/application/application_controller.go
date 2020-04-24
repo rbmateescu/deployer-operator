@@ -37,8 +37,7 @@ import (
 )
 
 const (
-	packageInfoLogLevel   = 3
-	packageDetailLogLevel = 5
+	packageInfoLogLevel = 3
 )
 
 var (

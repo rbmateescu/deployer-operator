@@ -1,0 +1,10 @@
+apiVersion: app.cp4mcm.ibm.com/v1alpha1
+kind: Deployer
+metadata:
+  name: kubernetes
+  labels:
+    deployer-type: kubernetes
+  annotations:
+    "app.cp4mcm.ibm.com/is-default-deployer": "true"
+spec:
+  type: kubernetes

@@ -1,0 +1,11 @@
+apiVersion: app.cp4mcm.ibm.com/v1alpha1
+kind: Deployer
+metadata:
+  name: cloudforms
+  labels:
+    deployer-type: cloudforms
+  annotations:
+    "app.cp4mcm.ibm.com/is-default-deployer": "false"
+    "app.cp4mcm.ibm.com/deployer-in-cluster": "true"
+spec:
+  type: cloudforms

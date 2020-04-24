@@ -1,0 +1,7 @@
+apiVersion: securityenforcement.admission.cloud.ibm.com/v1beta1
+kind: ClusterImagePolicy
+metadata:
+  name: cf-cluster-image-policy
+spec:
+  repositories:
+  - name: quay.io/rbmateescu/*

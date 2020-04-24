@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
@@ -149,7 +150,8 @@ func TestApplicationDiscovery(t *testing.T) {
 	_, err = mcDynamicClient.Resource(svcGVR).Namespace(userNamespace).Create(uc, metav1.CreateOptions{})
 	g.Expect(err).ShouldNot(HaveOccurred())
 	defer func() {
-		if err = mcDynamicClient.Resource(dplGVR).Namespace(userNamespace).Delete(svc.Name, &metav1.DeleteOptions{}); err != nil {
+		if err = mcDynamicClient.Resource(svcGVR).Namespace(userNamespace).Delete(svc.Name, &metav1.DeleteOptions{}); err != nil {
+			klog.Error(err)
 			t.Fail()
 		}
 	}()
@@ -161,6 +163,7 @@ func TestApplicationDiscovery(t *testing.T) {
 	g.Expect(err).ShouldNot(HaveOccurred())
 	defer func() {
 		if err = mcDynamicClient.Resource(stsGVR).Namespace(userNamespace).Delete(sts.Name, &metav1.DeleteOptions{}); err != nil {
+			klog.Error(err)
 			t.Fail()
 		}
 	}()
@@ -172,6 +175,7 @@ func TestApplicationDiscovery(t *testing.T) {
 	g.Expect(err).ShouldNot(HaveOccurred())
 	defer func() {
 		if err = mcDynamicClient.Resource(appGVR).Namespace(userNamespace).Delete(app.Name, &metav1.DeleteOptions{}); err != nil {
+			klog.Error(err)
 			t.Fail()
 		}
 	}()

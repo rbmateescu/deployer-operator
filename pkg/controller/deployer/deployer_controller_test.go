@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog"
 
 	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
 
@@ -138,8 +139,11 @@ func TestDeployersetCreatedOnHub(t *testing.T) {
 	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(HaveOccurred())
 	defer func() {
 		if err = managedClusterClient.Delete(context.TODO(), dep); err != nil {
+			klog.Error(err)
 			t.Fail()
 		}
+		// wait for deployerset to be gone
+		<-hubClusterClient.(HubClient).deleteCh
 	}()
 	g.Eventually(requests, timeout).Should(Receive(Equal(expectedRequest)))
 
@@ -188,6 +192,7 @@ func TestDeployersetRemovedFromHub(t *testing.T) {
 	<-hubClusterClient.(HubClient).createCh
 
 	if err = managedClusterClient.Delete(context.TODO(), dep); err != nil {
+		klog.Error(err)
 		t.Fail()
 	}
 

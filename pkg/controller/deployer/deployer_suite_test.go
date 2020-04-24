@@ -15,12 +15,14 @@
 package deployer
 
 import (
+	"context"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -29,10 +31,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	sigappv1beta1 "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
+	"github.com/onsi/gomega"
 
 	apis "github.com/IBM/deployer-operator/pkg/apis"
-	dplappv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis"
 )
 
 const (
@@ -43,13 +44,6 @@ const (
 var (
 	managedClusterConfig *rest.Config
 	hubClusterConfig     *rest.Config
-
-	managedClusterClient client.Client
-	hubClusterClient     client.Client
-
-	mgr      manager.Manager
-	requests chan reconcile.Request
-	recFn    reconcile.Reconciler
 
 	// managed cluster namespace on hub
 	clusterOnHub = types.NamespacedName{
@@ -73,18 +67,6 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	// add multicloud-operators-deployable scheme
-	err = dplappv1alpha1.AddToScheme(scheme.Scheme)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// add application scheme
-	err = sigappv1beta1.AddToScheme(scheme.Scheme)
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	if managedClusterConfig, err = managedCluster.Start(); err != nil {
 		log.Fatal(err)
 	}
@@ -101,37 +83,69 @@ func TestMain(m *testing.M) {
 		log.Fatal(err)
 	}
 
-	mgr, err = manager.New(managedClusterConfig, manager.Options{
-		MetricsBindAddress: "0",
-		Scheme:             scheme.Scheme,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	managedClusterClient = mgr.GetClient()
-
-	stopMgr, mgrStopped := StartTestManager(mgr)
-	defer func() {
-		close(stopMgr)
-		mgrStopped.Wait()
-	}()
-
-	rec := newReconciler(mgr, hubClusterClient, clusterOnHub)
-	recFn, requests = SetupTestReconcile(rec)
-
-	if err = add(mgr, recFn); err != nil {
-		log.Fatal(err)
-	}
-
 	code := m.Run()
 
-	managedCluster.Stop()
-	hubCluster.Stop()
+	if err = managedCluster.Stop(); err != nil {
+		log.Fatal(err)
+	}
+	if err = hubCluster.Stop(); err != nil {
+		log.Fatal(err)
+	}
 	os.Exit(code)
 }
 
 const waitgroupDelta = 1
+
+type HubClient struct {
+	client.Client
+	createCh chan runtime.Object
+	deleteCh chan runtime.Object
+	updateCh chan runtime.Object
+}
+
+func (hubClient HubClient) Create(ctx context.Context, obj runtime.Object, opts ...client.CreateOption) error {
+	err := hubClient.Client.Create(ctx, obj, opts...)
+	// non-blocking operation
+	select {
+	case hubClient.createCh <- obj:
+	default:
+	}
+	return err
+}
+
+func (hubClient HubClient) Delete(ctx context.Context, obj runtime.Object, opts ...client.DeleteOption) error {
+	err := hubClient.Client.Delete(ctx, obj, opts...)
+	// non-blocking operation
+	select {
+	case hubClient.deleteCh <- obj:
+	default:
+	}
+	return err
+}
+
+func (hubClient HubClient) Update(ctx context.Context, obj runtime.Object, opts ...client.UpdateOption) error {
+	err := hubClient.Client.Update(ctx, obj, opts...)
+	// non-blocking operation
+	select {
+	case hubClient.updateCh <- obj:
+	default:
+	}
+	return err
+}
+
+func SetupHubClient(innerClient client.Client) client.Client {
+	cCh := make(chan runtime.Object, 5)
+	dCh := make(chan runtime.Object, 5)
+	uCh := make(chan runtime.Object, 5)
+
+	hubClient := HubClient{
+		Client:   innerClient,
+		createCh: cCh,
+		deleteCh: dCh,
+		updateCh: uCh,
+	}
+	return hubClient
+}
 
 func SetupTestReconcile(inner reconcile.Reconciler) (reconcile.Reconciler, chan reconcile.Request) {
 	requests := make(chan reconcile.Request)
@@ -144,17 +158,15 @@ func SetupTestReconcile(inner reconcile.Reconciler) (reconcile.Reconciler, chan 
 	return fn, requests
 }
 
-func StartTestManager(mgr manager.Manager) (chan struct{}, *sync.WaitGroup) {
+// StartTestManager adds recFn
+func StartTestManager(mgr manager.Manager, g *gomega.GomegaWithT) (chan struct{}, *sync.WaitGroup) {
 	stop := make(chan struct{})
 	wg := &sync.WaitGroup{}
 	wg.Add(waitgroupDelta)
 
 	go func() {
 		defer wg.Done()
-		err := mgr.Start(stop)
-		if err != nil {
-			log.Fatal(err)
-		}
+		g.Expect(mgr.Start(stop)).NotTo(gomega.HaveOccurred())
 	}()
 
 	return stop, wg

@@ -20,7 +20,6 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -35,7 +34,6 @@ import (
 var (
 	managedClusterConfig *rest.Config
 	hubClusterConfig     *rest.Config
-	timeout              = time.Second * 2
 )
 
 func TestMain(m *testing.M) {
@@ -71,8 +69,12 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	managedCluster.Stop()
-	hubCluster.Stop()
+	if err = managedCluster.Stop(); err != nil {
+		log.Fatal(err)
+	}
+	if err = hubCluster.Stop(); err != nil {
+		log.Fatal(err)
+	}
 	os.Exit(code)
 }
 
@@ -144,9 +146,9 @@ func (ds DeployableSync) syncRemoveDeployable(old interface{}) {
 }
 
 func SetupDeployableSync(inner *ReconcileDeployable) ReconcileDeployableInterface {
-	cCh := make(chan interface{})
-	uCh := make(chan interface{})
-	dCh := make(chan interface{})
+	cCh := make(chan interface{}, 5)
+	uCh := make(chan interface{}, 5)
+	dCh := make(chan interface{}, 5)
 
 	dplSync := DeployableSync{
 		ReconcileDeployable: inner,

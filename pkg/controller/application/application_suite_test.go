@@ -15,18 +15,15 @@
 package application
 
 import (
-	"context"
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -72,63 +69,16 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	managedCluster.Stop()
-	hubCluster.Stop()
+	if err = managedCluster.Stop(); err != nil {
+		log.Fatal(err)
+	}
+	if err = hubCluster.Stop(); err != nil {
+		log.Fatal(err)
+	}
 	os.Exit(code)
 }
 
 const waitgroupDelta = 1
-
-type HubClient struct {
-	client.Client
-	createCh chan runtime.Object
-	deleteCh chan runtime.Object
-	updateCh chan runtime.Object
-}
-
-func (hubClient HubClient) Create(ctx context.Context, obj runtime.Object, opts ...client.CreateOption) error {
-	err := hubClient.Client.Create(ctx, obj, opts...)
-	// non-blocking operation
-	select {
-	case hubClient.createCh <- obj:
-	default:
-	}
-	return err
-}
-
-func (hubClient HubClient) Delete(ctx context.Context, obj runtime.Object, opts ...client.DeleteOption) error {
-	err := hubClient.Client.Delete(ctx, obj, opts...)
-	// non-blocking operation
-	select {
-	case hubClient.deleteCh <- obj:
-	default:
-	}
-	return err
-}
-
-func (hubClient HubClient) Update(ctx context.Context, obj runtime.Object, opts ...client.UpdateOption) error {
-	err := hubClient.Client.Update(ctx, obj, opts...)
-	// non-blocking operation
-	select {
-	case hubClient.updateCh <- obj:
-	default:
-	}
-	return err
-}
-
-func SetupHubClient(innerClient client.Client) client.Client {
-	cCh := make(chan runtime.Object)
-	dCh := make(chan runtime.Object)
-	uCh := make(chan runtime.Object)
-
-	hubClient := HubClient{
-		Client:   innerClient,
-		createCh: cCh,
-		deleteCh: dCh,
-		updateCh: uCh,
-	}
-	return hubClient
-}
 
 type ApplicationSync struct {
 	*ReconcileApplication
@@ -196,9 +146,9 @@ func (as ApplicationSync) syncRemoveApplication(old interface{}) {
 }
 
 func SetupApplicationSync(inner *ReconcileApplication) ReconcileApplicationInterface {
-	cCh := make(chan interface{})
-	uCh := make(chan interface{})
-	dCh := make(chan interface{})
+	cCh := make(chan interface{}, 5)
+	uCh := make(chan interface{}, 5)
+	dCh := make(chan interface{}, 5)
 
 	appSync := ApplicationSync{
 		ReconcileApplication: inner,

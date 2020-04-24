@@ -19,14 +19,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/onsi/gomega"
-
 	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
-
+	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -65,71 +65,128 @@ var (
 )
 
 func TestReconcile(t *testing.T) {
-	g := gomega.NewWithT(t)
+	g := NewWithT(t)
+
+	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
+	// channel when it is finished.
+	mgr, err := manager.New(managedClusterConfig, manager.Options{MetricsBindAddress: "0"})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	managedClusterClient := mgr.GetClient()
+	hubClient, _ := client.New(hubClusterConfig, client.Options{})
+	rec := newReconciler(mgr, hubClient, clusterOnHub)
+	recFn, requests := SetupTestReconcile(rec)
+
+	g.Expect(add(mgr, recFn)).NotTo(HaveOccurred())
+
+	stopMgr, mgrStopped := StartTestManager(mgr, g)
+
+	defer func() {
+		close(stopMgr)
+		mgrStopped.Wait()
+	}()
 
 	// Create the Deployer object and expect the Reconcile and Deployment to be created
 	dep := managedClusterDeployer.DeepCopy()
-	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(gomega.HaveOccurred())
+	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(HaveOccurred())
 
 	// reconcile.Request
-	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
+	g.Eventually(requests, timeout).Should(Receive(Equal(expectedRequest)))
 
 	// deployer in managed cluster
 	deployerResource := &appv1alpha1.Deployer{}
-	g.Expect(managedClusterClient.Get(context.TODO(), expectedRequest.NamespacedName, deployerResource)).NotTo(gomega.HaveOccurred())
+	g.Expect(managedClusterClient.Get(context.TODO(), expectedRequest.NamespacedName, deployerResource)).NotTo(HaveOccurred())
 
 	// don't use dep at this point for assertion, as the client.Create nulled out the TypeMeta.
-	g.Expect(deployerResource.TypeMeta.Kind).To(gomega.Equal(managedClusterDeployer.TypeMeta.Kind))
-	g.Expect(deployerResource.ObjectMeta.Name).To(gomega.Equal(managedClusterDeployer.ObjectMeta.Name))
-	g.Expect(deployerResource.ObjectMeta.Namespace).To(gomega.Equal(managedClusterDeployer.ObjectMeta.Namespace))
-	g.Expect(deployerResource.Spec).To(gomega.Equal(managedClusterDeployer.Spec))
+	g.Expect(deployerResource.TypeMeta.Kind).To(Equal(managedClusterDeployer.TypeMeta.Kind))
+	g.Expect(deployerResource.ObjectMeta.Name).To(Equal(managedClusterDeployer.ObjectMeta.Name))
+	g.Expect(deployerResource.ObjectMeta.Namespace).To(Equal(managedClusterDeployer.ObjectMeta.Namespace))
+	g.Expect(deployerResource.Spec).To(Equal(managedClusterDeployer.Spec))
 
-	// don't use defer for cleanup, as we weant to go through reconcile logic to make sure hubclient
-	// cache stays consistent
 	managedClusterClient.Delete(context.TODO(), dep)
-	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
+	g.Eventually(requests, timeout).Should(Receive(Equal(expectedRequest)))
 }
 
 func TestDeployersetCreatedOnHub(t *testing.T) {
-	g := gomega.NewWithT(t)
+	g := NewWithT(t)
+
+	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
+	// channel when it is finished.
+	mgr, err := manager.New(managedClusterConfig, manager.Options{MetricsBindAddress: "0"})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	managedClusterClient := mgr.GetClient()
+	innerHubClient, _ := client.New(hubClusterConfig, client.Options{})
+	hubClusterClient := SetupHubClient(innerHubClient)
+
+	rec := newReconciler(mgr, hubClusterClient, clusterOnHub)
+	recFn, requests := SetupTestReconcile(rec)
+
+	g.Expect(add(mgr, recFn)).NotTo(HaveOccurred())
+
+	stopMgr, mgrStopped := StartTestManager(mgr, g)
+
+	defer func() {
+		close(stopMgr)
+		mgrStopped.Wait()
+	}()
 
 	dep := managedClusterDeployer.DeepCopy()
-	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(gomega.HaveOccurred())
+	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(HaveOccurred())
+	defer managedClusterClient.Delete(context.TODO(), dep)
 
-	// reconcile.Request
-	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
+	g.Eventually(requests, timeout).Should(Receive(Equal(expectedRequest)))
+
+	// wait for the hub resource to come through
+	<-hubClusterClient.(HubClient).createCh
 
 	// deployerset in hub cluster
 	deployersetResource := &appv1alpha1.DeployerSet{}
-	g.Expect(hubClusterClient.Get(context.TODO(), clusterOnHub, deployersetResource)).NotTo(gomega.HaveOccurred())
-	g.Expect(deployersetResource.ObjectMeta.Name).To(gomega.Equal(clusterNameOnHub))
-	g.Expect(deployersetResource.ObjectMeta.Namespace).To(gomega.Equal(clusterNamespaceOnHub))
-	g.Expect(deployersetResource.Spec.DefaultDeployer).To(gomega.Equal(deployerNamespace + "/" + deployerName))
-	g.Expect(deployersetResource.Spec.Deployers).To(gomega.HaveLen(1))
-	g.Expect(deployersetResource.Spec.Deployers[0].Spec).To(gomega.Equal(managedClusterDeployer.Spec))
-
-	// don't use defer for cleanup, as we weant to go through reconcile logic to make sure hubclient
-	// cache stays consistent
-	managedClusterClient.Delete(context.TODO(), dep)
-	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
+	g.Expect(hubClusterClient.Get(context.TODO(), clusterOnHub, deployersetResource)).NotTo(HaveOccurred())
+	g.Expect(deployersetResource.ObjectMeta.Name).To(Equal(clusterNameOnHub))
+	g.Expect(deployersetResource.ObjectMeta.Namespace).To(Equal(clusterNamespaceOnHub))
+	g.Expect(deployersetResource.Spec.DefaultDeployer).To(Equal(deployerNamespace + "/" + deployerName))
+	g.Expect(deployersetResource.Spec.Deployers).To(HaveLen(1))
+	g.Expect(deployersetResource.Spec.Deployers[0].Spec).To(Equal(managedClusterDeployer.Spec))
 }
 
 func TestDeployersetRemovedFromHub(t *testing.T) {
-	g := gomega.NewWithT(t)
+	g := NewWithT(t)
+
+	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
+	// channel when it is finished.
+	mgr, err := manager.New(managedClusterConfig, manager.Options{MetricsBindAddress: "0"})
+	g.Expect(err).NotTo(HaveOccurred())
+
+	managedClusterClient := mgr.GetClient()
+	innerHubClient, _ := client.New(hubClusterConfig, client.Options{})
+	hubClusterClient := SetupHubClient(innerHubClient)
+
+	rec := newReconciler(mgr, hubClusterClient, clusterOnHub)
+	recFn, requests := SetupTestReconcile(rec)
+
+	g.Expect(add(mgr, recFn)).NotTo(HaveOccurred())
+
+	stopMgr, mgrStopped := StartTestManager(mgr, g)
+
+	defer func() {
+		close(stopMgr)
+		mgrStopped.Wait()
+	}()
 
 	dep := managedClusterDeployer.DeepCopy()
-	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(gomega.HaveOccurred())
+	g.Expect(managedClusterClient.Create(context.TODO(), dep)).NotTo(HaveOccurred())
 
-	// reconcile.Request
-	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
+	g.Eventually(requests, timeout).Should(Receive(Equal(expectedRequest)))
+	// wait for the hub resource to come through
+	<-hubClusterClient.(HubClient).createCh
 
 	managedClusterClient.Delete(context.TODO(), dep)
 
-	// reconcile.Request
-	g.Eventually(requests, timeout).Should(gomega.Receive(gomega.Equal(expectedRequest)))
+	<-hubClusterClient.(HubClient).deleteCh
 
 	// deployerset in hub cluster
 	deployersetResource := &appv1alpha1.DeployerSet{}
-	err := hubClusterClient.Get(context.TODO(), clusterOnHub, deployersetResource)
-	g.Expect(errors.IsNotFound(err)).To(gomega.BeTrue())
+	err = hubClusterClient.Get(context.TODO(), clusterOnHub, deployersetResource)
+	g.Expect(errors.IsNotFound(err)).To(BeTrue())
 }

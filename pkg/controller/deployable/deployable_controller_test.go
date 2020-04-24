@@ -164,6 +164,7 @@ func TestNoGroupObject(t *testing.T) {
 	uc = &unstructured.Unstructured{}
 	uc.SetUnstructuredContent(dplUC)
 	uc.SetGroupVersionKind(deployableGVK)
+
 	hubDynamicClient.Resource(dplGVR).Namespace(dpl.Namespace).Create(uc, metav1.CreateOptions{})
 	defer hubDynamicClient.Resource(dplGVR).Namespace(dpl.Namespace).Delete(dpl.Name, &metav1.DeleteOptions{})
 

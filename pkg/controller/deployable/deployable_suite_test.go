@@ -27,8 +27,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	apis "github.com/IBM/deployer-operator/pkg/apis"
 	"github.com/onsi/gomega"
+
+	apis "github.com/IBM/deployer-operator/pkg/apis"
 )
 
 var (

@@ -60,12 +60,6 @@ func InitExplorer(hubconfig, mcconfig *rest.Config, cluster types.NamespacedName
 		return nil, err
 	}
 
-	// explorer.HubClient, err = client.New(hubconfig, client.Options{})
-	// if err != nil {
-	// 	klog.Error("Failed to create client to hub with error:", err)
-	// 	return nil, err
-	// }
-
 	explorer.Cluster = cluster
 	resources, err := discovery.NewDiscoveryClientForConfigOrDie(mcconfig).ServerPreferredResources()
 	if err != nil {

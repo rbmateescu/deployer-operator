@@ -17,10 +17,6 @@ package application
 import (
 	"time"
 
-	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
-	"github.com/IBM/deployer-operator/pkg/controller/deployable"
-	"github.com/IBM/deployer-operator/pkg/utils"
-	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
 	sigappv1beta1 "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +30,11 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
+	"github.com/IBM/deployer-operator/pkg/controller/deployable"
+	"github.com/IBM/deployer-operator/pkg/utils"
+	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
 )
 
 const (
@@ -54,7 +55,7 @@ var (
 	}
 )
 
-// Add creates a new Deployable Controller and adds it to the Manager. The Manager will set fields on the Controller
+// Add creates a newObj Deployable Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager, hubconfig *rest.Config, cluster types.NamespacedName) error {
 	reconciler, err := newReconciler(mgr, hubconfig, cluster)
@@ -92,9 +93,9 @@ var _ ReconcileApplicationInterface = &ReconcileApplication{}
 
 type ReconcileApplicationInterface interface {
 	start()
-	syncCreateApplication(new interface{})
-	syncUpdateApplication(old interface{}, new interface{})
-	syncRemoveApplication(old interface{})
+	syncCreateApplication(newObj interface{})
+	syncUpdateApplication(oldObj interface{}, newObj interface{})
+	syncRemoveApplication(oldObj interface{})
 	stop()
 }
 
@@ -113,14 +114,14 @@ func (r *ReconcileApplication) start() {
 	}
 
 	handler := cache.ResourceEventHandlerFuncs{
-		AddFunc: func(new interface{}) {
-			r.syncCreateApplication(new)
+		AddFunc: func(newObj interface{}) {
+			r.syncCreateApplication(newObj)
 		},
-		UpdateFunc: func(old, new interface{}) {
-			r.syncUpdateApplication(old, new)
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			r.syncUpdateApplication(oldObj, newObj)
 		},
-		DeleteFunc: func(old interface{}) {
-			r.syncRemoveApplication(old)
+		DeleteFunc: func(oldObj interface{}) {
+			r.syncRemoveApplication(oldObj)
 		},
 	}
 
@@ -138,8 +139,8 @@ func (r *ReconcileApplication) stop() {
 	r.stopCh = nil
 }
 
-func (r *ReconcileApplication) syncCreateApplication(new interface{}) {
-	metaobj, err := meta.Accessor(new)
+func (r *ReconcileApplication) syncCreateApplication(newObj interface{}) {
+	metaobj, err := meta.Accessor(newObj)
 	if err != nil {
 		klog.Error("Failed to access object metadata for sync with error: ", err)
 		return
@@ -148,8 +149,8 @@ func (r *ReconcileApplication) syncCreateApplication(new interface{}) {
 	r.syncApplication(metaobj)
 }
 
-func (r *ReconcileApplication) syncUpdateApplication(old interface{}, new interface{}) {
-	metaobj, err := meta.Accessor(new)
+func (r *ReconcileApplication) syncUpdateApplication(oldObj, newObj interface{}) {
+	metaobj, err := meta.Accessor(newObj)
 	if err != nil {
 		klog.Error("Failed to access object metadata for sync with error: ", err)
 		return
@@ -158,7 +159,7 @@ func (r *ReconcileApplication) syncUpdateApplication(old interface{}, new interf
 	r.syncApplication(metaobj)
 }
 
-func (r *ReconcileApplication) syncRemoveApplication(old interface{}) {
+func (r *ReconcileApplication) syncRemoveApplication(oldObj interface{}) {
 
 }
 

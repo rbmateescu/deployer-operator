@@ -17,9 +17,6 @@ package deployable
 import (
 	"time"
 
-	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
-	"github.com/IBM/deployer-operator/pkg/utils"
-	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +29,10 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
+	"github.com/IBM/deployer-operator/pkg/utils"
+	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
 )
 
 var (
@@ -61,9 +62,11 @@ func newReconciler(mgr manager.Manager, hubconfig *rest.Config, cluster types.Na
 		klog.Error("Failed to create client explorer: ", err)
 		return nil, err
 	}
+
 	var dynamicHubFactory = dynamicinformer.NewDynamicSharedInformerFactory(explorer.DynamicHubClient, resync)
 	reconciler := &ReconcileDeployable{
-		explorer:          explorer,
+		explorer: explorer,
+
 		dynamicHubFactory: dynamicHubFactory,
 	}
 	return reconciler, nil

@@ -17,10 +17,6 @@ package deployable
 import (
 	"reflect"
 
-	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
-	"github.com/IBM/deployer-operator/pkg/utils"
-	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
-	subv1alpha1 "github.com/IBM/multicloud-operators-subscription/pkg/apis/app/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +25,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog"
+
+	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
+	"github.com/IBM/deployer-operator/pkg/utils"
+	dplv1alpha1 "github.com/IBM/multicloud-operators-deployable/pkg/apis/app/v1alpha1"
+	subv1alpha1 "github.com/IBM/multicloud-operators-subscription/pkg/apis/app/v1alpha1"
 )
 
 const (

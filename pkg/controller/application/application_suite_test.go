@@ -27,8 +27,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	apis "github.com/IBM/deployer-operator/pkg/apis"
 	"github.com/onsi/gomega"
+
+	apis "github.com/IBM/deployer-operator/pkg/apis"
 )
 
 var (
@@ -92,11 +93,11 @@ func (as ApplicationSync) start() {
 	// generic explorer
 	as.stopCh = make(chan struct{})
 	handler := cache.ResourceEventHandlerFuncs{
-		AddFunc: func(new interface{}) {
-			as.syncCreateApplication(new)
+		AddFunc: func(newObj interface{}) {
+			as.syncCreateApplication(newObj)
 		},
-		UpdateFunc: func(old, new interface{}) {
-			as.syncUpdateApplication(old, new)
+		UpdateFunc: func(old, newObj interface{}) {
+			as.syncUpdateApplication(old, newObj)
 		},
 		DeleteFunc: func(old interface{}) {
 			as.syncRemoveApplication(old)
@@ -126,11 +127,11 @@ func (as ApplicationSync) syncCreateApplication(obj interface{}) {
 	}
 
 }
-func (as ApplicationSync) syncUpdateApplication(old interface{}, new interface{}) {
-	as.ReconcileApplication.syncUpdateApplication(old, new)
+func (as ApplicationSync) syncUpdateApplication(old, newObj interface{}) {
+	as.ReconcileApplication.syncUpdateApplication(old, newObj)
 	// non-blocking operation
 	select {
-	case as.updateCh <- new:
+	case as.updateCh <- newObj:
 	default:
 	}
 

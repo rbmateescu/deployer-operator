@@ -17,7 +17,6 @@ package application
 import (
 	"testing"
 
-	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
 	sigappv1beta1 "github.com/kubernetes-sigs/application/pkg/apis/app/v1beta1"
 	. "github.com/onsi/gomega"
 	apps "k8s.io/api/apps/v1"
@@ -27,6 +26,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	appv1alpha1 "github.com/IBM/deployer-operator/pkg/apis/app/v1alpha1"
 )
 
 var (
